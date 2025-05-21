@@ -29,6 +29,7 @@ const RoomControls: React.FC<{
     handleJoinRoom: () => void;
     joiningRoom: boolean;
     joinError: string;
+    createError: string; // Nuevo prop para mostrar errores de creación
 }> = ({
     newRoomCapacity,
     setNewRoomCapacity,
@@ -40,6 +41,7 @@ const RoomControls: React.FC<{
     handleJoinRoom,
     joiningRoom,
     joinError,
+    createError,
 }) => {
     return (
         <div>
@@ -54,6 +56,7 @@ const RoomControls: React.FC<{
                         placeholder="Ej: 5"
                     />
                 </div>
+                {createError && <p className="p-error">{createError}</p>} {/* Mostrar error de creación */}
                 <Button
                     label={createRooms ? "Creando..." : "Crear Sala"}
                     onClick={handleCreateRoom}
@@ -95,17 +98,17 @@ export const Chat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [connected, setConnected] = useState<Boolean>(false);
     const [host, setHost] = useState<hostInfo>({ host: "", ip: "" });
-    const [connectionError, setConnectionError] = useState<string>(""); // Nuevo estado para error de conexión
-    const socketRef = useRef<any>(null);
-
+    const [connectionError, setConnectionError] = useState<string>("");
     const [creatingRoom, setCreatingRoom] = useState<boolean>(false);
     const [newRoomCapacity, setNewRoomCapacity] = useState<string>("5");
     const [roomPin, setRoomPin] = useState<string>("");
     const [joiningRoom, setJoiningRoom] = useState<boolean>(false);
     const [joinPin, setJoinPin] = useState<string>("");
     const [joinError, setJoinError] = useState<string>("");
+    const [createError, setCreateError] = useState<string>(""); // Nuevo estado para error de creación
     const [currentRoomPin, setCurrentRoomPin] = useState<string | null>(null);
-    const [inRoom, setInRoom] = useState<boolean>(false); // Nuevo estado para controlar si estamos en una sala
+    const [inRoom, setInRoom] = useState<boolean>(false);
+    const socketRef = useRef<any>(null);
 
     useEffect(() => {
         if (!nickname) return;
@@ -121,7 +124,7 @@ export const Chat: React.FC = () => {
         socketRef.current.on('connection_error', (error: { message: string }) => {
             setConnectionError(error.message);
             setConnected(false);
-            socketRef.current.disconnect(); // Desconectar el socket
+            socketRef.current.disconnect();
         });
 
         socketRef.current.on('receive_message', (msg: Message) => {
@@ -134,8 +137,15 @@ export const Chat: React.FC = () => {
             setCreatingRoom(false);
             setJoiningRoom(false);
             setJoinError("");
-            setInRoom(true); // Marcamos que estamos en una sala
+            setCreateError(""); // Limpiar error de creación
+            setInRoom(true);
             alert(`Sala creada con PIN: ${data.pin}`);
+        });
+
+        socketRef.current.on('create_error', (error: { message: string }) => {
+            setCreateError(error.message);
+            setCreatingRoom(false);
+            alert(`Error al crear la sala: ${error.message}`);
         });
 
         socketRef.current.on('join_success', () => {
@@ -143,7 +153,7 @@ export const Chat: React.FC = () => {
             setJoiningRoom(false);
             setCreatingRoom(false);
             setJoinError("");
-            setInRoom(true); // Marcamos que estamos en una sala
+            setInRoom(true);
             alert(`Te has unido a la sala ${joinPin}`);
         });
 
@@ -151,18 +161,16 @@ export const Chat: React.FC = () => {
             setJoinError(error.message);
             setJoiningRoom(false);
             setCurrentRoomPin(null);
-            setInRoom(false); // Aseguramos que no estamos marcados como en una sala
+            setInRoom(false);
             alert(`Error al unirse: ${error.message}`);
         });
 
         socketRef.current.on('user_joined', (data: { userId: string }) => {
             console.log(`Usuario ${data.userId} se unió a la sala ${currentRoomPin}`);
-            // Actualizar lista de usuarios en la UI si es necesario
         });
 
         socketRef.current.on('user_left', (data: { userId: string }) => {
             console.log(`Usuario ${data.userId} dejó la sala ${currentRoomPin}`);
-            // Actualizar lista de usuarios en la UI si es necesario
         });
 
         return () => {
@@ -170,10 +178,15 @@ export const Chat: React.FC = () => {
                 socketRef.current.disconnect();
             }
         };
-
     }, [nickname, joinPin]);
 
     const handleCreateRoom = () => {
+        const capacity = parseInt(newRoomCapacity);
+        if (isNaN(capacity) || capacity <= 0) {
+            setCreateError("La capacidad debe ser un número mayor a 0");
+            return;
+        }
+        setCreateError(""); // Limpiar error antes de intentar crear
         setCreatingRoom(true);
         socketRef.current.emit('create_room', newRoomCapacity);
     };
@@ -191,7 +204,7 @@ export const Chat: React.FC = () => {
 
     const sendMessage = () => {
         const msg = message.trim();
-        if (!msg || !connected || !currentRoomPin) return; // Asegurarse de estar en una sala
+        if (!msg || !connected || !currentRoomPin) return;
 
         const msgObj = {
             author: nickname,
@@ -204,12 +217,10 @@ export const Chat: React.FC = () => {
     };
 
     const handleRetryConnection = () => {
-        setConnectionError(""); // Limpiar el error
-        setNickname(""); // Reiniciar el nickname para volver al formulario inicial
-        // El useEffect se encargará de intentar reconectar cuando se ingrese un nuevo nickname
+        setConnectionError("");
+        setNickname("");
     };
 
-    // Mostrar el componente de error si hay un connection_error
     if (connectionError) {
         return (
             <IpError
@@ -245,7 +256,6 @@ export const Chat: React.FC = () => {
         );
     }
 
-    // Mostrar el formulario de creación/unión de salas si no estamos en una sala
     if (!inRoom) {
         return (
             <div className="flex justify-content-center align-items-center h-screen">
@@ -261,13 +271,13 @@ export const Chat: React.FC = () => {
                         handleJoinRoom={handleJoinRoom}
                         joiningRoom={joiningRoom}
                         joinError={joinError}
+                        createError={createError} // Pasar el nuevo estado
                     />
                 </Card>
             </div>
         );
     }
 
-    // Mostrar el chat si estamos en una sala
     return (
         <div className="flex justify-content-center">
             <Card title={`Chat en la sala ${currentRoomPin} con ${nickname}`} className="w-25">
